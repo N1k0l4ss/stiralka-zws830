@@ -725,12 +725,15 @@ function spin(){
   else { const i=S.stages.findIndex(s=>s==="spin"||s==="hold"); if(i>=S.cur&&i>-1){S.stages[i]=S.spin==="hold"?"hold":"spin";} }
   say(S.spin==="hold"?"Остановка полоскания: после полосканий вода останется в баке, чтобы бельё не мялось. Потом выберешь слив или отжим.":`Отжим ${SLONG[S.spin]}.${S.fab==="deli"?" У деликатных машина не даст больше 650.":""}`);
 }
+// rejected option, as filmed on the real machine: all three option lamps blink together 4 times (~0.2 s on, ~0.13 s off)
+const OPT_BLINK={n:4,period:330,on:200};
+function flashOpts(){ S.optFlash=Date.now(); for(let k=0;k<OPT_BLINK.n;k++){ setTimeout(render,k*OPT_BLINK.period+OPT_BLINK.on+5); setTimeout(render,(k+1)*OPT_BLINK.period+5); } }
 function opt(){
   if(!S.fab||S.mode==="done") return say("Сначала выбери ткань.",true);
   if(!canEdit()) return say("Сначала поставь паузу: СТАРТ/ПАУЗА.",true);
   if(S.special) return say("К полосканию, отжиму или сливу опции не добавляются.",true);
   if(S.mode==="pause") return say("Опции выбирают до старта.",true);
-  if(S.fab==="wool"){ S.optFlash=Date.now(); setTimeout(render,1100); return say("У «Шерсти / ручной» опций нет: машина мигает всеми тремя лампами опций и ни одну не включает.",true); }
+  if(S.fab==="wool"){ flashOpts(); return say("У «Шерсти / ручной» опций нет: машина мигает всеми тремя лампами опций и ни одну не включает.",true); }
   const before=estimate(cfgNow()).min;
   const o=optsFor(S.fab); S.opt=o[(o.indexOf(S.opt)+1)%o.length]; S.stages=buildStages();
   const after=estimate(cfgNow()).min, d=Math.round(after-before);
@@ -834,7 +837,7 @@ function render(){
   const on=k=>lampEl[k]&&lampEl[k].classList.add("on"), bl=k=>lampEl[k].classList.add("on","blink");
   if(S.on){ on("net");
     if(S.fab&&S.mode!=="idle"){ on("f_"+S.fab); if(!S.special) on("t_"+S.temp);
-      if(S.special!==3) on("s_"+(S.mode==="hold"&&S.holdChoice==="spin"?(S.holdSpin||"850"):S.spin)); if(S.opt!=="none") on("o_"+S.opt); if(S.optFlash&&Date.now()-S.optFlash<1000){on("o_pre");on("o_water");on("o_quick");} }
+      if(S.special!==3) on("s_"+(S.mode==="hold"&&S.holdChoice==="spin"?(S.holdSpin||"850"):S.spin)); if(S.opt!=="none") on("o_"+S.opt); if(S.optFlash){const e=Date.now()-S.optFlash; if(e<OPT_BLINK.n*OPT_BLINK.period&&e%OPT_BLINK.period<OPT_BLINK.on){on("o_pre");on("o_water");on("o_quick");}} }
     if(S.mode==="sel"){bl("start");S.stages.forEach(s=>on("st_"+s));}
     if(S.mode==="pause"){bl("start");S.stages.slice(S.cur).forEach(s=>on("st_"+s));}
     if(S.mode==="run"){on("start");on("st_"+S.stages[S.cur]);}
@@ -1011,6 +1014,7 @@ function pick(k,v){
   if(k==="fabric"&&(!S.fab||["idle","off","done"].includes(S.mode))) Object.assign(cand,{temp:FAB[v].def,spin:FAB[v].spins[0],opt:"none",special:0});
   if(k==="fabric") cand.temp=cand.temp||FAB[v].def;
   const iss=issues(cand);
+  if(k==="opt"&&cand.fab==="wool"&&v!=="none"){ flashOpts(); render(); }
   if(!iss.length){ closeSheet(); setCfg(cand); toast("Готово ✓"); return; }
   resolver(cand,k,iss);
 }
