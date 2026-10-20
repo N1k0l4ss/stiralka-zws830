@@ -350,7 +350,7 @@ nav.tabs button.on{color:#fff}
 <div class="app">
   <header class="top">
     <div class="hello"><small id="greet">Привет</small><b>Стиралка <span>ZWS 830</span></b></div>
-    <button class="iconbtn glass" id="themeBtn" aria-label="Тема"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+    <div style="display:flex;gap:8px"><button class="iconbtn glass" id="soundBtn" aria-label="Звук"></button><button class="iconbtn glass" id="themeBtn" aria-label="Тема"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button></div>
   </header>
 
   <!-- ПУЛЬТ -->
@@ -678,11 +678,28 @@ function say(t,w=false){S.msg=t;S.warn=w;}
 const canEdit=()=>S.mode==="sel"||S.mode==="pause";
 const inWash=()=>S.mode==="sel"||["pre","wash"].includes(S.stages[S.cur]);
 
+// Machine beep, measured from the video: ~3720 Hz almost pure tone, ~150 ms, fast attack, ~40 ms decay.
+// Every key press beeps once (the power key does not); a rejected option beeps 4 times in step with the lamp blinks.
+let AC=null;
+function beep(times=1,gap=330,dur=0.15){
+  if(DB.settings.sound===false) return;
+  try{
+    AC=AC||new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==="suspended") AC.resume();
+    for(let k=0;k<times;k++){
+      const t=AC.currentTime+k*gap/1000+0.005, o=AC.createOscillator(), g=AC.createGain();
+      o.type="sine"; o.frequency.value=3720;
+      g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.13,t+0.008); g.gain.setValueAtTime(0.13,t+dur); g.gain.linearRampToValueAtTime(0,t+dur+0.04);
+      o.connect(g).connect(AC.destination); o.start(t); o.stop(t+dur+0.06);
+    }
+  }catch(e){}
+}
 function press(b){
   if(navigator.vibrate) try{navigator.vibrate(8);}catch(e){}
+  S.beeped=false;
   if(b==="power") power();
   else if(!S.on) say("Сначала включи машину кнопкой ВКЛ/ВЫКЛ.",true);
   else ({fabric,temp,spin,opt,start,reset})[b]();
+  if(S.on&&b!=="power"&&!S.beeped) beep(1);
   render();
 }
 function power(){
@@ -690,7 +707,7 @@ function power(){
     say(S.prev==="run"?"Выключено посреди стирки. Дверца откроется примерно через 3 минуты. Если снова включить, программа продолжится.":"Машина выключена."); return; }
   S.on=true;
   if(S.prev==="run"){ S.mode="run"; runT(); say("Включено: программа продолжается с того же места."); }
-  else if(S.prev==="done"){ S.mode="done"; say("Пищит: в памяти осталась прошлая программа. Нажми ПРОПУСК/СБРОС или выбери ткань.",true); }
+  else if(S.prev==="done"){ S.mode="done"; beep(3,400,0.25); say("Пищит: в памяти осталась прошлая программа. Нажми ПРОПУСК/СБРОС или выбери ткань.",true); }
   else if(S.prev && S.fab && S.prev!=="idle"){ S.mode=S.prev; say("Включено, настройки сохранились."); }
   else { S.mode="idle"; say("Включено, горит зелёная лампочка СЕТЬ. Теперь нажми ТКАНЬ."); }
 }
@@ -727,7 +744,7 @@ function spin(){
 }
 // rejected option, as filmed on the real machine: all three option lamps blink together 4 times (~0.2 s on, ~0.13 s off)
 const OPT_BLINK={n:4,period:330,on:200};
-function flashOpts(){ S.optFlash=Date.now(); for(let k=0;k<OPT_BLINK.n;k++){ setTimeout(render,k*OPT_BLINK.period+OPT_BLINK.on+5); setTimeout(render,(k+1)*OPT_BLINK.period+5); } }
+function flashOpts(){ S.optFlash=Date.now(); S.beeped=true; beep(OPT_BLINK.n,OPT_BLINK.period); for(let k=0;k<OPT_BLINK.n;k++){ setTimeout(render,k*OPT_BLINK.period+OPT_BLINK.on+5); setTimeout(render,(k+1)*OPT_BLINK.period+5); } }
 function opt(){
   if(!S.fab||S.mode==="done") return say("Сначала выбери ткань.",true);
   if(!canEdit()) return say("Сначала поставь паузу: СТАРТ/ПАУЗА.",true);
@@ -787,7 +804,7 @@ function finish(){
   stopT();
   if(S.stages[S.stages.length-1]==="hold"){ S.mode="hold"; S.holdChoice=null;
     say("Стоп: в баке вода («остановка полоскания»). Нажми СБРОС, выбери слив или отжим, потом СТАРТ.",true); }
-  else { S.mode="done"; S.cur=-1; say("Готово, машина пискнула. Нажми ПРОПУСК/СБРОС, потом ВКЛ/ВЫКЛ."); toast("Стирка завершена ✨"); }
+  else { S.mode="done"; S.cur=-1; say("Готово, машина пискнула. Нажми ПРОПУСК/СБРОС, потом ВКЛ/ВЫКЛ."); toast("Стирка завершена ✨"); beep(3,400,0.25); }
 }
 function nextGuide(){
   const t=S.target; if(!t) return null;
@@ -1401,6 +1418,11 @@ function go(s){curScreen=s;document.querySelectorAll(".screen").forEach(x=>x.cla
 document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>go(b.dataset.s));
 document.querySelectorAll("[data-sp]").forEach(b=>{b.classList.toggle("on",+b.dataset.sp===S.speed);b.onclick=()=>{S.speed=+b.dataset.sp;DB.settings.speed=S.speed;save();document.querySelectorAll("[data-sp]").forEach(x=>x.classList.toggle("on",x===b));};});
 const root=document.documentElement; if(DB.settings.theme) root.dataset.theme=DB.settings.theme;
+const SND_ON='<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
+const SND_OFF='<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 6 6M22 9l-6 6"/></svg>';
+function renderSound(){ $("soundBtn").innerHTML=DB.settings.sound===false?SND_OFF:SND_ON; }
+$("soundBtn").onclick=()=>{ DB.settings.sound=DB.settings.sound===false; save(); renderSound(); if(DB.settings.sound!==false) beep(1); toast(DB.settings.sound===false?"Писк выключен (на машине: ТЕМПЕРАТУРА + ОТЖИМ одновременно)":"Писк включён"); };
+renderSound();
 $("themeBtn").onclick=()=>{const dark=root.dataset.theme?root.dataset.theme==="dark":matchMedia("(prefers-color-scheme: dark)").matches;root.dataset.theme=dark?"light":"dark";DB.settings.theme=root.dataset.theme;save();};
 const hr=new Date().getHours(); $("greet").textContent=hr<5?"Доброй ночи 🌙":hr<12?"Доброе утро ☀️":hr<18?"Добрый день 🌤":"Добрый вечер 🌙";
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
